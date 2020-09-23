@@ -1,0 +1,12 @@
+[package]
+name = "rsm-raft"
+version = "0.1.0"
+authors = ["Unreal Hoang <unrealhoang@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+crossbeam-channel = "*"
+log = "0.4"
+rand = "*"
+rand_core = "*"
+env_logger = "*"
