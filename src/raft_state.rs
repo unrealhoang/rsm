@@ -136,6 +136,28 @@ where
     role_state: RoleState,
 }
 
+impl<SM, L> Debug for RaftState<SM, L>
+where
+    SM: StateMachine,
+    L: Log<Event = SM::Event>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = match self.role_state {
+            RoleState::Leader { .. } => "leader",
+            RoleState::Follower { .. } => "follower",
+            RoleState::Candidate { .. } => "candidate",
+        };
+
+        f.debug_struct("RaftState")
+            .field("curr_term", &self.curr_term)
+            .field("voted_for", &self.voted_for)
+            .field("commit_index", &self.commit_index)
+            .field("last_applied", &self.last_applied)
+            .field("role_state", &state)
+            .finish()
+    }
+}
+
 fn update_peer_request<L, E>(
     log: &L,
     id: u64,
@@ -242,6 +264,7 @@ where
     where
         N: RaftNetwork<Event = SM::Event>,
     {
+        log::info!("[{}] Election timeout, self promote. D: {:#?}", self.id, self);
         self.curr_term += 1;
         let mut votes = PeerInfos::new();
         self.voted_for = Some(self.id);
@@ -270,6 +293,7 @@ where
     where
         N: RaftNetwork<Event = SM::Event>,
     {
+        log::info!("[{}] Heartbeat timeout, sending out heartbeats. D: {:#?}", self.id, self);
         if let RoleState::Leader { next_indexes, .. } = &mut self.role_state {
             let mut requests = Vec::new();
 
@@ -304,6 +328,8 @@ where
         N: RaftNetwork<Event = SM::Event>,
     {
         if msg.term() > self.curr_term {
+            log::info!("[{}] Receive msg with larger term, become Follower. D: {:#?}", self.id, self);
+            self.curr_term = msg.term();
             self.role_state = RoleState::Follower;
             net.timer_reset(TimerKind::Election);
         }
@@ -340,6 +366,7 @@ where
                 append_entries.entries,
             ) {
                 Err(last_index) => {
+                    log::info!("[{}] Append failed. D: {:#?}", self.id, self);
                     resp.last_index = last_index;
                 }
                 Ok(last_index) => {
@@ -347,6 +374,7 @@ where
                         self.commit_index = std::cmp::min(append_entries.leader_commit, last_index)
                     }
                     resp.success = true;
+                    log::info!("[{}] Received data from leader, reset election timer. D: {:#?}", self.id, self);
 
                     net.timer_reset(TimerKind::Election);
                 }
@@ -464,6 +492,7 @@ where
                         next_indexes.insert(peer.id, self.log.last_index() + 1);
                         match_indexes.insert(peer.id, 0);
                     }
+                    log::info!("[{}] Received quorum votes, become leader", self.id);
                     self.role_state = RoleState::Leader {
                         next_indexes,
                         match_indexes,

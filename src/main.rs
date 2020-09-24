@@ -2,7 +2,11 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use env_logger;
 use log::info;
 use rand::{thread_rng, Rng};
-use rsm_raft::{Config, Node, Peer, StateMachine, VecLog};
+use rsm_raft::{
+    Node, StateMachine,
+    raft_log::VecLog,
+    raft_network::{Peer, ChanNetwork},
+};
 use std::collections::HashMap;
 use std::io;
 use std::io::BufRead;
@@ -11,9 +15,10 @@ struct KVStore {
     data: HashMap<String, String>,
 }
 
+type Event = (String, String);
 impl StateMachine for KVStore {
     type Snapshot = HashMap<String, String>;
-    type Event = (String, String);
+    type Event = Event;
 
     // Empty state machine
     fn new() -> Self {
@@ -29,7 +34,7 @@ impl StateMachine for KVStore {
     }
 }
 
-fn send_command(txs: &mut [Sender<(String, String)>], data: (String, String)) {
+fn send_command(txs: &mut [Sender<Event>], data: Event) {
     info!("Send command to cluster");
     for tx in txs {
         tx.send(data.clone()).unwrap();
@@ -62,7 +67,8 @@ fn main() {
     }
 
     for i in 0..number_of_nodes {
-        let config = Config::new(rng.gen_range(8_000_000, 10_000_000), 2_000_000);
+        let election_timeout = rng.gen_range(15_000_000, 18_000_000);
+        let heartbeat_timeout = 2_000_000;
 
         let (client_tx, client_rx) = unbounded();
         client_txs.push(client_tx);
@@ -71,14 +77,13 @@ fn main() {
             data: HashMap::new(),
         };
         let log = VecLog::new();
+        let network = ChanNetwork::new(election_timeout, heartbeat_timeout, peers_per_node.remove(0), client_rx);
 
         let node = Node::new(
             i as u64,
-            config,
             sm,
             log,
-            peers_per_node.remove(0),
-            client_rx,
+            network,
         );
         nodes.push(node);
     }
@@ -116,6 +121,7 @@ fn main() {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     // Returns peer list for each node
@@ -169,3 +175,4 @@ mod tests {
         let node_threads = nodes.into_iter().map(Node::start_loop).collect::<Vec<_>>();
     }
 }
+*/

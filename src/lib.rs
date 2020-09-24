@@ -5,13 +5,13 @@ use log::info;
 use raft_network::{SelectedAction, TimerKind};
 use raft_state::{Msg, PeerConfig, Suffrage};
 
-mod raft_log;
 mod raft_state_machine;
 mod raft_state;
-mod raft_network;
+pub mod raft_log;
+pub mod raft_network;
 mod utils;
 
-pub use self::raft_log::{Log, LogEntry, VecLog};
+pub use self::raft_log::{Log, LogEntry};
 pub use self::raft_state_machine::StateMachine;
 pub use self::raft_network::RaftNetwork;
 use self::raft_state::RaftState;
@@ -63,6 +63,7 @@ where
 
     pub fn start_loop(mut self) -> JoinHandle<()> {
         info!("[{}] Start node event loop", self.id);
+        self.network.timer_reset(TimerKind::Election);
         thread::spawn(move || loop {
             // New event applied to state machine
             if self.state.apply_committed() {
@@ -70,6 +71,7 @@ where
             }
 
             let action = self.network.select_action();
+            log::info!("[{}] Node: {:#?}, Action: {:#?}. Network: {:#?}", self.id, self.state, action, self.network);
 
             match action {
                 SelectedAction::Timer(timer_kind) => {

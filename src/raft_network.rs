@@ -21,7 +21,7 @@ pub enum TimerKind {
     Election,
 }
 
-pub trait RaftNetwork: Send + 'static {
+pub trait RaftNetwork: Send + Debug + 'static {
     type Event: Clone + Debug;
 
     fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) -> Result<(), ()>;
@@ -39,7 +39,7 @@ pub trait RaftNetwork: Send + 'static {
 
     fn peer_ids(&self) -> Box<dyn Iterator<Item = u64> + '_>;
 
-    fn select_action(&self) -> SelectedAction<Self::Event>;
+    fn select_action(&mut self) -> SelectedAction<Self::Event>;
 }
 
 // Channels to communicate with peers
@@ -55,13 +55,46 @@ impl<E: Clone + Debug> Peer<E> {
     }
 }
 
+struct Timer {
+    rx: Receiver<Instant>,
+    timer_kind: TimerKind,
+}
+
 pub struct ChanNetwork<E: Clone + Debug> {
     election_timeout: u64,
     heartbeat_timeout: u64,
     peers: Vec<Peer<E>>,
     client_rx: Receiver<E>,
-    timer_rx: Receiver<Instant>,
-    timer_kind: Option<TimerKind>,
+    timer: Option<Timer>
+}
+
+impl<E: Clone + Debug> Debug for ChanNetwork<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let timer_kind = match &self.timer {
+            Some(t) => match t.timer_kind {
+                TimerKind::Election => "election",
+                TimerKind::Heartbeat => "heartbeat",
+            },
+            None => "none"
+        };
+        f.debug_struct("ChanNetwork")
+            .field("election_timeout", &self.election_timeout)
+            .field("heartbeat_timeout", &self.heartbeat_timeout)
+            .field("timer", &timer_kind)
+            .finish()
+    }
+}
+
+impl<E: Clone + Debug> ChanNetwork<E> {
+    pub fn new(election_timeout: u64, heartbeat_timeout: u64, peers: Vec<Peer<E>>, client_rx: Receiver<E>) -> Self {
+        ChanNetwork {
+            election_timeout,
+            heartbeat_timeout,
+            peers,
+            client_rx,
+            timer: None,
+        }
+    }
 }
 
 impl<E: Clone + Debug> ChanNetwork<E> {
@@ -96,28 +129,33 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
     fn timer_reset(&mut self, timer_kind: TimerKind) {
         let duration = match timer_kind {
             TimerKind::Heartbeat => {
-                Duration::from_secs(self.heartbeat_timeout)
+                Duration::from_micros(self.heartbeat_timeout)
             }
             TimerKind::Election => {
-                Duration::from_secs(self.election_timeout)
+                Duration::from_micros(self.election_timeout)
             }
         };
-        self.timer_kind = Some(timer_kind);
-        self.timer_rx = after(duration);
+        self.timer = Some(Timer {
+            timer_kind,
+            rx: after(duration),
+        });
     }
 
     fn peer_ids(&self) -> Box<dyn Iterator<Item = u64> + '_> {
         Box::new(self.peers.iter().map(|p| p.id))
     }
 
-    fn select_action(&self) -> SelectedAction<Self::Event> {
+    fn select_action(&mut self) -> SelectedAction<Self::Event> {
         let mut select = Select::new();
 
         for peer in self.peers.iter() {
             select.recv(&peer.rx);
         }
         let client_index = select.recv(&self.client_rx);
-        let timer_index = select.recv(&self.timer_rx);
+
+        if let Some(ref t) = self.timer {
+            select.recv(&t.rx);
+        }
 
         let selected = select.select();
         match selected.index() {
@@ -125,9 +163,9 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
                 let client_event = selected.recv(&self.client_rx).unwrap();
                 SelectedAction::Client(client_event)
             }
-            i if i == timer_index => {
-                selected.recv(&self.timer_rx).unwrap();
-                SelectedAction::Timer(self.timer_kind.unwrap())
+            i if i > client_index => {
+                selected.recv(&self.timer.as_ref().unwrap().rx).unwrap();
+                SelectedAction::Timer(self.timer.as_ref().unwrap().timer_kind)
             }
             i if i < self.peers.len() => {
                 let peer = &self.peers[i];
