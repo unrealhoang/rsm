@@ -10,6 +10,7 @@ mod raft_state;
 pub mod raft_log;
 pub mod raft_network;
 mod utils;
+pub mod impls;
 
 pub use self::raft_log::{Log, LogEntry};
 pub use self::raft_state_machine::StateMachine;
@@ -65,10 +66,8 @@ where
         info!("[{}] Start node event loop", self.id);
         self.network.timer_reset(TimerKind::Election);
         thread::spawn(move || loop {
-            // New event applied to state machine
-            if self.state.apply_committed() {
-                self.state.update_peers(&mut self.network);
-            }
+            self.state.apply_committed();
+            self.state.update_peers(&mut self.network, false);
 
             let action = self.network.select_action();
             log::info!("[{}] Node: {:#?}, Action: {:#?}. Network: {:#?}", self.id, self.state, action, self.network);

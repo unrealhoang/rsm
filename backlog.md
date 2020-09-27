@@ -3,13 +3,14 @@
     - [x] Handle client message
     - [x] Handle peer message
     - [x] Handle timer
-* Init ChanNetwork in main demo/integration test
+* [ ] Init ChanNetwork in main demo/integration test
     - [x] Impl RaftNetwork for ChanNetwork
+    - [ ] Integration test
 * [x] Split RaftState by Role
 * [x] Handle term for each peer msg
-* Introduce Output type for SM
-* StateMachine batch processing
-* StateMachine snapshotting
-* Refactor to LeaderState / NodeState
-* Topology change
-* Proper error handling
+* [ ] Introduce Output type for SM
+* [ ] StateMachine batch processing
+* [ ] StateMachine snapshotting
+* [ ] Topology change
+* [ ] Refactor to LeaderState / NodeState
+* [ ] Proper error handling

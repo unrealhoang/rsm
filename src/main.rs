@@ -1,12 +1,12 @@
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{Sender};
 use env_logger;
 use log::info;
-use rand::{thread_rng, Rng};
+use rand::{thread_rng};
 use rsm_raft::{
     Node, StateMachine,
     raft_log::VecLog,
-    raft_network::{Peer, ChanNetwork},
 };
+use rsm_raft::impls::ChanNetwork;
 use std::collections::HashMap;
 use std::io;
 use std::io::BufRead;
@@ -50,34 +50,15 @@ fn main() {
         .parse::<usize>()
         .expect("Parse error");
     let mut nodes = Vec::new();
-    let mut client_txs = Vec::new();
     let mut rng = thread_rng();
-    let mut peers_per_node = Vec::new();
-    for _i in 0..number_of_nodes {
-        peers_per_node.push(Vec::new());
-    }
+    let (networks, mut client_txs) = ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes);
 
-    for i in 0..number_of_nodes {
-        for j in i + 1..number_of_nodes {
-            let (txi, rxi) = unbounded();
-            let (txj, rxj) = unbounded();
-            peers_per_node[i].push(Peer::new(j as u64, txi, rxj));
-            peers_per_node[j].push(Peer::new(i as u64, txj, rxi));
-        }
-    }
-
-    for i in 0..number_of_nodes {
-        let election_timeout = rng.gen_range(15_000_000, 18_000_000);
-        let heartbeat_timeout = 2_000_000;
-
-        let (client_tx, client_rx) = unbounded();
-        client_txs.push(client_tx);
-
+    let mut i = 0;
+    for network in networks {
         let sm = KVStore {
             data: HashMap::new(),
         };
         let log = VecLog::new();
-        let network = ChanNetwork::new(election_timeout, heartbeat_timeout, peers_per_node.remove(0), client_rx);
 
         let node = Node::new(
             i as u64,
@@ -86,6 +67,7 @@ fn main() {
             network,
         );
         nodes.push(node);
+        i += 1;
     }
     let node_threads = nodes.into_iter().map(Node::start_loop).collect::<Vec<_>>();
 
@@ -121,42 +103,56 @@ fn main() {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
-    // Returns peer list for each node
-    fn channels(num_of_nodes: u64) -> Vec<Vec<Peer>> {
-        let mut result = vec![Vec::with_capacity(num_of_nodes); num_of_nodes];
+    use rsm_raft::{
+        Node, StateMachine,
+        raft_log::VecLog,
+    };
+    use rsm_raft::impls::ChanNetwork;
+    use std::collections::HashMap;
+    use crossbeam::channel::Sender;
+    use rand::{thread_rng};
 
-        for i in 0..number_of_nodes {
-            for j in i + 1..number_of_nodes {
-                let (txi, rxi) = unbounded();
-                let (txj, rxj) = unbounded();
-                peers_per_node[i].push(Peer::new(j as u64, txi, rxj));
-                peers_per_node[j].push(Peer::new(i as u64, txj, rxi));
+    struct KVStore {
+        data: HashMap<String, String>,
+    }
+
+    type Event = (String, String);
+    impl StateMachine for KVStore {
+        type Snapshot = HashMap<String, String>;
+        type Event = Event;
+
+        // Empty state machine
+        fn new() -> Self {
+            KVStore {
+                data: HashMap::new(),
             }
         }
-
-        for per_node in result {
-            per_node.remove(0);
+        fn from_snapshot(snapshot: Self::Snapshot) -> Self {
+            KVStore { data: snapshot }
         }
+        fn execute(&mut self, event: &Self::Event) {
+            self.data.insert(event.0.clone(), event.1.clone());
+        }
+    }
 
-        result
+    fn send_command(txs: &mut [Sender<Event>], data: Event) {
+        log::info!("Send command to cluster");
+        for tx in txs {
+            tx.send(data.clone()).unwrap();
+        }
     }
 
     #[test]
     fn vote_test() {
         let mut nodes = Vec::new();
-        let mut client_txs = Vec::new();
         let mut rng = thread_rng();
-        let mut peers_per_node = channels(number_of_nodes);
+        let number_of_nodes = 3;
+        let (networks, mut client_txs) = ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes);
 
-        for i in 0..number_of_nodes {
-            let config = Config::new(rng.gen_range(8_000_000, 10_000_000), 2_000_000);
-
-            let (client_tx, client_rx) = unbounded();
-            client_txs.push(client_tx);
-
+        let mut i = 0;
+        for network in networks {
             let sm = KVStore {
                 data: HashMap::new(),
             };
@@ -164,15 +160,13 @@ mod tests {
 
             let node = Node::new(
                 i as u64,
-                config,
                 sm,
                 log,
-                peers_per_node.remove(0),
-                client_rx,
+                network,
             );
             nodes.push(node);
+            i += 1;
         }
         let node_threads = nodes.into_iter().map(Node::start_loop).collect::<Vec<_>>();
     }
 }
-*/

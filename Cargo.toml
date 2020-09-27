@@ -5,8 +5,8 @@ authors = ["Unreal Hoang <unrealhoang@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-crossbeam-channel = "*"
 log = "0.4"
+crossbeam = "*"
 rand = "*"
 rand_core = "*"
 env_logger = "*"

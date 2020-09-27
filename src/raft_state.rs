@@ -222,7 +222,7 @@ where
         }
     }
 
-    pub(crate) fn update_peers<N>(&self, net: &mut N) -> Result<(), ()>
+    pub(crate) fn update_peers<N>(&self, net: &mut N, is_heartbeat: bool) -> Result<(), ()>
     where
         N: RaftNetwork<Event = SM::Event>,
     {
@@ -237,6 +237,11 @@ where
                     &next_indexes,
                     peer_id,
                 );
+
+                if !is_heartbeat && append.entries.len() == 0 {
+                    continue
+                }
+
                 let request = (peer_id, Msg::AppendEntries(append));
                 reqs.push(request);
             }
@@ -294,26 +299,8 @@ where
         N: RaftNetwork<Event = SM::Event>,
     {
         log::info!("[{}] Heartbeat timeout, sending out heartbeats. D: {:#?}", self.id, self);
-        if let RoleState::Leader { next_indexes, .. } = &mut self.role_state {
-            let mut requests = Vec::new();
-
-            for peer_id in net.peer_ids() {
-                let entries = self.log.slice_to_end(next_indexes[peer_id]).to_vec();
-                let request = (
-                    peer_id,
-                    Msg::AppendEntries(AppendEntries {
-                        term: self.curr_term,
-                        leader_id: self.id,
-                        prev_log_index: self.log.last_index(),
-                        prev_log_term: self.log.last_term(),
-                        entries,
-                        leader_commit: self.commit_index,
-                    }),
-                );
-                requests.push(request);
-            }
-
-            net.send_all(requests.into_iter());
+        if let RoleState::Leader { .. } = &self.role_state {
+            self.update_peers(net, true);
             net.timer_reset(TimerKind::Heartbeat);
         }
     }
