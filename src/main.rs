@@ -132,6 +132,7 @@ mod tests {
         fn from_snapshot(snapshot: Self::Snapshot) -> Self {
             KVStore { data: snapshot }
         }
+
         fn execute(&mut self, event: &Self::Event) {
             self.data.insert(event.0.clone(), event.1.clone());
         }

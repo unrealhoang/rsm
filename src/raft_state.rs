@@ -200,9 +200,7 @@ where
             last_applied: 0,
             sm,
             role_state: RoleState::Follower,
-            configuration: Configuration {
-                peers,
-            },
+            configuration: Configuration { peers },
         }
     }
 
@@ -227,26 +225,33 @@ where
         N: RaftNetwork<Event = SM::Event>,
     {
         if let RoleState::Leader { next_indexes, .. } = &self.role_state {
-            let mut reqs = Vec::new();
-            for peer_id in net.peer_ids() {
-                let append = update_peer_request(
-                    &self.log,
-                    self.id,
-                    self.curr_term,
-                    self.commit_index,
-                    &next_indexes,
-                    peer_id,
-                );
+            let append_reqs = self
+                .configuration
+                .peers
+                .iter()
+                .filter(|p| p.id != self.id)
+                .map(|peer| {
+                    (
+                        peer.id,
+                        update_peer_request(
+                            &self.log,
+                            self.id,
+                            self.curr_term,
+                            self.commit_index,
+                            &next_indexes,
+                            peer.id,
+                        ),
+                    )
+                })
+                .filter_map(|(id, append)| {
+                    if append.entries.len() > 0 || is_heartbeat {
+                        Some((id, Msg::AppendEntries(append)))
+                    } else {
+                        None
+                    }
+                });
 
-                if !is_heartbeat && append.entries.len() == 0 {
-                    continue
-                }
-
-                let request = (peer_id, Msg::AppendEntries(append));
-                reqs.push(request);
-            }
-
-            net.send_all(reqs.into_iter())
+            net.send_all(append_reqs)
         } else {
             Err(())
         }
@@ -269,28 +274,35 @@ where
     where
         N: RaftNetwork<Event = SM::Event>,
     {
-        log::info!("[{}] Election timeout, self promote. D: {:#?}", self.id, self);
+        log::info!(
+            "[{}] Election timeout, self promote. D: {:#?}",
+            self.id,
+            self
+        );
         self.curr_term += 1;
         let mut votes = PeerInfos::new();
         self.voted_for = Some(self.id);
         votes.insert(self.id, true);
         self.role_state = RoleState::Candidate { votes };
 
-        let mut self_promote_msgs = Vec::new();
-        for peer_id in net.peer_ids() {
-            let request = (
-                peer_id,
-                Msg::RequestVote(RequestVote {
-                    term: self.curr_term,
-                    candidate_id: self.id,
-                    last_log_index: self.log.last_index(),
-                    last_log_term: self.log.last_term(),
-                }),
-            );
-            self_promote_msgs.push(request);
-        }
+        let self_promote_msgs = self
+            .configuration
+            .peers
+            .iter()
+            .filter(|p| p.id != self.id)
+            .map(|peer| {
+                (
+                    peer.id,
+                    Msg::RequestVote(RequestVote {
+                        term: self.curr_term,
+                        candidate_id: self.id,
+                        last_log_index: self.log.last_index(),
+                        last_log_term: self.log.last_term(),
+                    }),
+                )
+            });
 
-        net.send_all(self_promote_msgs.into_iter());
+        net.send_all(self_promote_msgs);
         net.timer_reset(TimerKind::Election);
     }
 
@@ -298,7 +310,11 @@ where
     where
         N: RaftNetwork<Event = SM::Event>,
     {
-        log::info!("[{}] Heartbeat timeout, sending out heartbeats. D: {:#?}", self.id, self);
+        log::info!(
+            "[{}] Heartbeat timeout, sending out heartbeats. D: {:#?}",
+            self.id,
+            self
+        );
         if let RoleState::Leader { .. } = &self.role_state {
             self.update_peers(net, true);
             net.timer_reset(TimerKind::Heartbeat);
@@ -315,7 +331,11 @@ where
         N: RaftNetwork<Event = SM::Event>,
     {
         if msg.term() > self.curr_term {
-            log::info!("[{}] Receive msg with larger term, become Follower. D: {:#?}", self.id, self);
+            log::info!(
+                "[{}] Receive msg with larger term, become Follower. D: {:#?}",
+                self.id,
+                self
+            );
             self.curr_term = msg.term();
             self.role_state = RoleState::Follower;
             net.timer_reset(TimerKind::Election);
@@ -361,7 +381,11 @@ where
                         self.commit_index = std::cmp::min(append_entries.leader_commit, last_index)
                     }
                     resp.success = true;
-                    log::info!("[{}] Received data from leader, reset election timer. D: {:#?}", self.id, self);
+                    log::info!(
+                        "[{}] Received data from leader, reset election timer. D: {:#?}",
+                        self.id,
+                        self
+                    );
 
                     net.timer_reset(TimerKind::Election);
                 }

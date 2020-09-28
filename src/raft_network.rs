@@ -32,8 +32,6 @@ pub trait RaftNetwork: Send + Debug + 'static {
 
     fn timer_reset(&mut self, timer_kind: TimerKind);
 
-    fn peer_ids(&self) -> Box<dyn Iterator<Item = u64> + '_>;
-
     fn select_actions(&mut self, buf: &mut Vec<SelectedAction<Self::Event>>, max_action: usize, max_wait_time: Duration) -> bool;
 }
 
