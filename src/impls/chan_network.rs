@@ -92,9 +92,38 @@ impl<E: Clone + Debug> ChanNetwork<E> {
 
         (networks, client_txs)
     }
-}
 
-impl<E: Clone + Debug> ChanNetwork<E> {
+    fn select_action(&mut self, wait_time: Duration) -> Option<SelectedAction<E>> {
+        let mut select = Select::new();
+
+        for peer in self.peers.iter() {
+            select.recv(&peer.rx);
+        }
+        let client_index = select.recv(&self.client_rx);
+
+        if let Some(ref t) = self.timer {
+            select.recv(&t.rx);
+        }
+
+        let selected = select.select_timeout(wait_time).ok()?;
+        match selected.index() {
+            i if i == client_index => {
+                let client_event = selected.recv(&self.client_rx).unwrap();
+                Some(SelectedAction::Client(client_event))
+            }
+            i if i > client_index => {
+                selected.recv(&self.timer.as_ref().unwrap().rx).unwrap();
+                Some(SelectedAction::Timer(self.timer.as_ref().unwrap().timer_kind))
+            }
+            i if i < self.peers.len() => {
+                let peer = &self.peers[i];
+                let peer_msg = selected.recv(&peer.rx).unwrap();
+                Some(SelectedAction::Peer(peer.id, peer_msg))
+            }
+            _ => panic!("Fail selection"),
+        }
+    }
+
     fn iter(&self) -> impl Iterator<Item = &Peer<E>> {
         self.peers.iter()
     }
@@ -142,35 +171,21 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
         Box::new(self.peers.iter().map(|p| p.id))
     }
 
-    fn select_action(&mut self) -> SelectedAction<Self::Event> {
-        let mut select = Select::new();
+    fn select_actions(&mut self, buf: &mut Vec<SelectedAction<Self::Event>>, max_actions: usize, max_wait_time: Duration) -> bool {
+        let duration_zero = Duration::new(0, 0);
 
-        for peer in self.peers.iter() {
-            select.recv(&peer.rx);
+        let mut timeout = max_wait_time;
+        for _ in 0..max_actions {
+            let instant = Instant::now();
+            if let Some(action) = self.select_action(timeout) {
+                buf.push(action);
+                timeout = timeout.checked_sub(instant.elapsed()).unwrap_or(duration_zero);
+            } else {
+                return true;
+            }
         }
-        let client_index = select.recv(&self.client_rx);
 
-        if let Some(ref t) = self.timer {
-            select.recv(&t.rx);
-        }
-
-        let selected = select.select();
-        match selected.index() {
-            i if i == client_index => {
-                let client_event = selected.recv(&self.client_rx).unwrap();
-                SelectedAction::Client(client_event)
-            }
-            i if i > client_index => {
-                selected.recv(&self.timer.as_ref().unwrap().rx).unwrap();
-                SelectedAction::Timer(self.timer.as_ref().unwrap().timer_kind)
-            }
-            i if i < self.peers.len() => {
-                let peer = &self.peers[i];
-                let peer_msg = selected.recv(&peer.rx).unwrap();
-                SelectedAction::Peer(peer.id, peer_msg)
-            }
-            _ => panic!("Fail selection"),
-        }
+        false
     }
 }
 

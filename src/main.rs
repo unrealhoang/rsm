@@ -1,7 +1,7 @@
-use crossbeam::channel::{Sender};
+use crossbeam::channel::Sender;
 use env_logger;
 use log::info;
-use rand::{thread_rng};
+use rand::thread_rng;
 use rsm_raft::{
     Node, StateMachine,
     raft_log::VecLog,

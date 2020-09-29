@@ -8,6 +8,7 @@
     - [ ] Integration test
 * [x] Split RaftState by Role
 * [x] Handle term for each peer msg
+* [x] Batch network action
 * [ ] Introduce Output type for SM
 * [ ] StateMachine batch processing
 * [ ] StateMachine snapshotting

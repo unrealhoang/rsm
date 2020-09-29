@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::time::Duration;
 
 use crate::Msg;
 
@@ -33,6 +34,6 @@ pub trait RaftNetwork: Send + Debug + 'static {
 
     fn peer_ids(&self) -> Box<dyn Iterator<Item = u64> + '_>;
 
-    fn select_action(&mut self) -> SelectedAction<Self::Event>;
+    fn select_actions(&mut self, buf: &mut Vec<SelectedAction<Self::Event>>, max_action: usize, max_wait_time: Duration) -> bool;
 }
 

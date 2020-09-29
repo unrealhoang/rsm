@@ -1,4 +1,5 @@
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use log::info;
 
@@ -65,13 +66,21 @@ where
     pub fn start_loop(mut self) -> JoinHandle<()> {
         info!("[{}] Start node event loop", self.id);
         self.network.timer_reset(TimerKind::Election);
+        let mut action_buf = Vec::new();
+
         thread::spawn(move || loop {
-            self.state.apply_committed();
-            self.state.update_peers(&mut self.network, false);
+            self.tick(&mut action_buf, 100, Duration::from_millis(500));
+        })
+    }
 
-            let action = self.network.select_action();
-            log::info!("[{}] Node: {:#?}, Action: {:#?}. Network: {:#?}", self.id, self.state, action, self.network);
+    pub fn tick(&mut self, action_buf: &mut Vec<SelectedAction<SM::Event>>, max_actions: usize, timeout: Duration) -> bool {
+        self.state.apply_committed();
+        self.state.update_peers(&mut self.network, false);
 
+        let timed_out = self.network.select_actions(action_buf, max_actions, timeout);
+        log::info!("[{}] Node: {:#?}, Actions: {:#?}. Network: {:#?}", self.id, self.state, action_buf, self.network);
+
+        for action in action_buf.drain(..) {
             match action {
                 SelectedAction::Timer(timer_kind) => {
                     self.handle_timer(timer_kind);
@@ -83,7 +92,9 @@ where
                     self.handle_peer(id, msg);
                 }
             };
-        })
+        }
+
+        timed_out
     }
 
     fn handle_client(&mut self, client_event: SM::Event) {
