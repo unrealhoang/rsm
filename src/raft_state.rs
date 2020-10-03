@@ -101,15 +101,17 @@ impl Index<u64> for PeerIndexes {
     }
 }
 
-pub(crate) enum Suffrage {
+#[derive(Clone, Copy)]
+pub enum Suffrage {
     Voter,
     Nonvoter,
     Staging,
 }
 
-pub(crate) struct PeerConfig {
-    pub(crate) id: u64,
-    pub(crate) suffrage: Suffrage,
+#[derive(Clone, Copy)]
+pub struct PeerConfig {
+    pub id: u64,
+    pub suffrage: Suffrage,
 }
 
 pub(crate) struct Configuration {

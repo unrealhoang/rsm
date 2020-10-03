@@ -5,6 +5,7 @@ use rand::thread_rng;
 use rsm_raft::{
     Node, StateMachine,
     raft_log::VecLog,
+    Suffrage, PeerConfig
 };
 use rsm_raft::impls::ChanNetwork;
 use std::collections::HashMap;
@@ -51,9 +52,17 @@ fn main() {
         .expect("Parse error");
     let mut nodes = Vec::new();
     let mut rng = thread_rng();
-    let (networks, mut client_txs) = ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes);
+    let (networks, mut client_txs) = ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes, false);
 
     let mut i = 0;
+    let mut topology = Vec::new();
+    for i in 0..number_of_nodes {
+        topology.push(PeerConfig {
+            id: i as u64,
+            suffrage: Suffrage::Voter
+        });
+    }
+
     for network in networks {
         let sm = KVStore {
             data: HashMap::new(),
@@ -65,6 +74,7 @@ fn main() {
             sm,
             log,
             network,
+            topology.clone(),
         );
         nodes.push(node);
         i += 1;
@@ -105,14 +115,16 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, sync::Arc, sync::Mutex};
+
     use rsm_raft::{
         Node, StateMachine,
         raft_log::VecLog,
+        Suffrage, PeerConfig,
     };
     use rsm_raft::impls::ChanNetwork;
-    use std::collections::HashMap;
     use crossbeam::channel::Sender;
-    use rand::{thread_rng};
+    use rand::thread_rng;
 
     struct KVStore {
         data: HashMap<String, String>,
@@ -150,9 +162,17 @@ mod tests {
         let mut nodes = Vec::new();
         let mut rng = thread_rng();
         let number_of_nodes = 3;
-        let (networks, mut client_txs) = ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes);
+        let (networks, mut client_txs) = ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes, true);
 
         let mut i = 0;
+        let mut topology = Vec::new();
+        for i in 0..number_of_nodes {
+            topology.push(PeerConfig {
+                id: i as u64,
+                suffrage: Suffrage::Voter
+            });
+        }
+
         for network in networks {
             let sm = KVStore {
                 data: HashMap::new(),
@@ -163,11 +183,14 @@ mod tests {
                 i as u64,
                 sm,
                 log,
-                network,
+                Arc::new(Mutex::new(network)),
+                topology.clone()
             );
             nodes.push(node);
             i += 1;
         }
-        let node_threads = nodes.into_iter().map(Node::start_loop).collect::<Vec<_>>();
+
+        for node in nodes {
+        }
     }
 }

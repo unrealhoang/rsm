@@ -13,5 +13,7 @@
 * [ ] StateMachine batch processing
 * [ ] StateMachine snapshotting
 * [ ] Topology change
-* [ ] Refactor to LeaderState / NodeState
+* [ ] Refactor to type based State FSM LeaderState / NodeState
 * [ ] Proper error handling
+* [ ] CoW snapshotting
+    * https://docs.rs/ipc-channel/0.14.1/ipc_channel/

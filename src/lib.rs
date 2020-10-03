@@ -3,15 +3,16 @@ use std::time::Duration;
 
 use log::info;
 
-use raft_network::{SelectedAction, TimerKind};
-use raft_state::{Msg, PeerConfig, Suffrage};
-
 mod raft_state_machine;
 mod raft_state;
 pub mod raft_log;
 pub mod raft_network;
 mod utils;
 pub mod impls;
+
+use raft_network::{SelectedAction, TimerKind};
+use raft_state::Msg;
+pub use raft_state::{PeerConfig, Suffrage};
 
 pub use self::raft_log::{Log, LogEntry};
 pub use self::raft_state_machine::StateMachine;
@@ -41,20 +42,9 @@ where
         sm: SM,
         log: L,
         network: N,
+        topology: Vec<PeerConfig>,
     ) -> Self {
-        let mut peer_info = Vec::new();
-        for peer_id in network.peer_ids() {
-            peer_info.push(PeerConfig {
-                id: peer_id,
-                suffrage: Suffrage::Voter
-            });
-        }
-        peer_info.push(PeerConfig {
-            id: node_id,
-            suffrage: Suffrage::Voter
-        });
-
-        let state = RaftState::new(node_id, sm, log, peer_info);
+        let state = RaftState::new(node_id, sm, log, topology);
 
         Node {
             id: node_id,
