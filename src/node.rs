@@ -1,7 +1,7 @@
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crate::Log;
+use crate::Storage;
 use crate::PeerConfig;
 use crate::RaftNetwork;
 use crate::StateMachine;
@@ -13,7 +13,7 @@ use crate::raft_network::{SelectedAction, TimerKind};
 pub struct Node<SM, L, N>
 where
     SM: StateMachine,
-    L: Log<Event = SM::Event>,
+    L: Storage<Event = SM::Event>,
     N: RaftNetwork<Event = SM::Event>,
 {
     id: u64,
@@ -24,7 +24,7 @@ where
 impl<SM, L, N> Node<SM, L, N>
 where
     SM: StateMachine,
-    L: Log<Event = SM::Event>,
+    L: Storage<Event = SM::Event>,
     N: RaftNetwork<Event = SM::Event>,
 {
     pub fn new(
@@ -93,4 +93,3 @@ where
         self.state.handle_rpc(&mut self.network, peer_id, peer_msg);
     }
 }
-

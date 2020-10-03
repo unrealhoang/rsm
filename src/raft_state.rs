@@ -1,6 +1,6 @@
 use crate::utils;
 use crate::LogEntry;
-use crate::{raft_network::TimerKind, Log, RaftNetwork, StateMachine};
+use crate::{raft_network::TimerKind, Storage, RaftNetwork, StateMachine};
 use std::fmt::Debug;
 use std::ops::Index;
 
@@ -121,7 +121,7 @@ pub(crate) struct Configuration {
 pub(crate) struct RaftState<SM, L>
 where
     SM: StateMachine,
-    L: Log<Event = SM::Event>,
+    L: Storage<Event = SM::Event>,
 {
     id: u64,
     configuration: Configuration,
@@ -141,7 +141,7 @@ where
 impl<SM, L> Debug for RaftState<SM, L>
 where
     SM: StateMachine,
-    L: Log<Event = SM::Event>,
+    L: Storage<Event = SM::Event>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state = match self.role_state {
@@ -169,7 +169,7 @@ fn update_peer_request<L, E>(
     peer_id: u64,
 ) -> AppendEntries<E>
 where
-    L: Log<Event = E>,
+    L: Storage<Event = E>,
     E: Clone,
 {
     let entries = log.slice_to_end(next_indexes[peer_id]).to_vec();
@@ -188,7 +188,7 @@ where
 impl<SM, L> RaftState<SM, L>
 where
     SM: StateMachine,
-    L: Log<Event = SM::Event>,
+    L: Storage<Event = SM::Event>,
 {
     pub(crate) fn new(id: u64, sm: SM, log: L, peers: Vec<PeerConfig>) -> Self {
         RaftState {

@@ -4,7 +4,7 @@ use log::info;
 use rand::thread_rng;
 use rsm_raft::{
     Node, StateMachine,
-    raft_log::VecLog,
+    raft_storage::VecStorage,
     Suffrage, PeerConfig
 };
 use rsm_raft::impls::ChanNetwork;
@@ -67,7 +67,7 @@ fn main() {
         let sm = KVStore {
             data: HashMap::new(),
         };
-        let log = VecLog::new();
+        let log = VecStorage::new();
 
         let node = Node::new(
             i as u64,
@@ -119,7 +119,7 @@ mod tests {
 
     use rsm_raft::{
         Node, StateMachine,
-        raft_log::VecLog,
+        raft_storage::VecStorage,
         Suffrage, PeerConfig,
     };
     use rsm_raft::impls::ChanNetwork;
@@ -177,7 +177,7 @@ mod tests {
             let sm = KVStore {
                 data: HashMap::new(),
             };
-            let log = VecLog::new();
+            let log = VecStorage::new();
 
             let node = Node::new(
                 i as u64,

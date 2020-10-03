@@ -7,7 +7,7 @@ pub struct LogEntry<E> {
     pub data: E,
 }
 
-pub trait Log: Send + 'static {
+pub trait Storage: Send + 'static {
     type Event;
 
     fn at(&self, index: u64) -> Option<&LogEntry<Self::Event>>;
@@ -24,9 +24,9 @@ pub trait Log: Send + 'static {
     fn slice_to_end(&self, from_index: u64) -> &[LogEntry<Self::Event>];
 }
 
-pub struct VecLog<E>(Vec<LogEntry<E>>);
+pub struct VecStorage<E>(Vec<LogEntry<E>>);
 
-impl<E: Send + 'static> Log for VecLog<E> {
+impl<E: Send + 'static> Storage for VecStorage<E> {
     type Event = E;
 
     fn at(&self, index: u64) -> Option<&LogEntry<E>> {
@@ -92,9 +92,9 @@ impl<E: Send + 'static> Log for VecLog<E> {
     }
 }
 
-impl<E> VecLog<E> {
+impl<E> VecStorage<E> {
     pub fn new() -> Self {
-        VecLog(Vec::new())
+        VecStorage(Vec::new())
     }
 
     fn clear_from_index(&mut self, index: u64) {
@@ -121,8 +121,8 @@ impl<E> VecLog<E> {
 mod tests {
     #[test]
     fn test_append_entries_success() {
-        use super::{Log, LogEntry};
-        let mut log = super::VecLog::new();
+        use super::{Storage, LogEntry};
+        let mut log = super::VecStorage::new();
         log.push(1, 1);
         log.push(1, 2);
         log.push(1, 3);
@@ -174,8 +174,8 @@ mod tests {
 
     #[test]
     fn test_append_entries_failure() {
-        use super::{Log, LogEntry};
-        let mut log = super::VecLog::new();
+        use super::{Storage, LogEntry};
+        let mut log = super::VecStorage::new();
         log.push(1, 1);
         log.push(1, 2);
         log.push(1, 3);
