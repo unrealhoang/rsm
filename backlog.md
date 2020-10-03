@@ -10,7 +10,8 @@
 * [x] Handle term for each peer msg
 * [x] Batch network action
 * [x] Rename Log to Storage
-* [ ] Move StateMachine to Log
+* [x] Move HardState to Storage
+* [ ] Move StateMachine to Storage
 * [ ] Introduce Output type for SM
 * [ ] StateMachine batch processing
 * [ ] StateMachine snapshotting

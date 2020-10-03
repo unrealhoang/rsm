@@ -127,9 +127,7 @@ where
     configuration: Configuration,
 
     // Persistent state
-    curr_term: u64,
-    voted_for: Option<u64>,
-    log: L,
+    storage: L,
     sm: SM,
 
     // Volatile state
@@ -151,8 +149,8 @@ where
         };
 
         f.debug_struct("RaftState")
-            .field("curr_term", &self.curr_term)
-            .field("voted_for", &self.voted_for)
+            .field("curr_term", &self.storage.current_term())
+            .field("voted_for", &self.storage.voted_for())
             .field("commit_index", &self.commit_index)
             .field("last_applied", &self.last_applied)
             .field("role_state", &state)
@@ -161,9 +159,8 @@ where
 }
 
 fn update_peer_request<L, E>(
-    log: &L,
+    storage: &L,
     id: u64,
-    curr_term: u64,
     commit_index: u64,
     next_indexes: &PeerIndexes,
     peer_id: u64,
@@ -172,10 +169,10 @@ where
     L: Storage<Event = E>,
     E: Clone,
 {
-    let entries = log.slice_to_end(next_indexes[peer_id]).to_vec();
-    let prev_entry = log.at(next_indexes[peer_id] - 1);
+    let entries = storage.slice_to_end(next_indexes[peer_id]).to_vec();
+    let prev_entry = storage.at(next_indexes[peer_id] - 1);
     let request = AppendEntries {
-        term: curr_term,
+        term: storage.current_term(),
         leader_id: id,
         prev_log_index: prev_entry.map(|e| e.index).unwrap_or(0),
         prev_log_term: prev_entry.map(|e| e.term).unwrap_or(0),
@@ -190,13 +187,11 @@ where
     SM: StateMachine,
     L: Storage<Event = SM::Event>,
 {
-    pub(crate) fn new(id: u64, sm: SM, log: L, peers: Vec<PeerConfig>) -> Self {
+    pub(crate) fn new(id: u64, sm: SM, storage: L, peers: Vec<PeerConfig>) -> Self {
         RaftState {
             id,
 
-            curr_term: 0,
-            voted_for: None,
-            log,
+            storage,
 
             commit_index: 0,
             last_applied: 0,
@@ -209,7 +204,7 @@ where
     pub(crate) fn apply_committed(&mut self) -> bool {
         if self.commit_index > self.last_applied {
             let events = self
-                .log
+                .storage
                 .slice(self.last_applied + 1, self.commit_index + 1)
                 .iter()
                 .map(|entry| &entry.data);
@@ -236,9 +231,8 @@ where
                     (
                         peer.id,
                         update_peer_request(
-                            &self.log,
+                            &self.storage,
                             self.id,
-                            self.curr_term,
                             self.commit_index,
                             &next_indexes,
                             peer.id,
@@ -268,7 +262,7 @@ where
         if !self.is_leader() {
             log::info!("[{:?}] Drop client request", self.role_state);
         } else {
-            self.log.push(self.curr_term, request);
+            self.storage.push(self.storage.current_term(), request);
         }
     }
 
@@ -281,9 +275,10 @@ where
             self.id,
             self
         );
-        self.curr_term += 1;
+        self.storage.set_current_term(self.storage.current_term() + 1);
+        self.storage.set_voted_for(self.id);
+
         let mut votes = PeerInfos::new();
-        self.voted_for = Some(self.id);
         votes.insert(self.id, true);
         self.role_state = RoleState::Candidate { votes };
 
@@ -296,10 +291,10 @@ where
                 (
                     peer.id,
                     Msg::RequestVote(RequestVote {
-                        term: self.curr_term,
+                        term: self.storage.current_term(),
                         candidate_id: self.id,
-                        last_log_index: self.log.last_index(),
-                        last_log_term: self.log.last_term(),
+                        last_log_index: self.storage.last_index(),
+                        last_log_term: self.storage.last_term(),
                     }),
                 )
             });
@@ -332,13 +327,13 @@ where
     where
         N: RaftNetwork<Event = SM::Event>,
     {
-        if msg.term() > self.curr_term {
+        if msg.term() > self.storage.current_term() {
             log::info!(
                 "[{}] Receive msg with larger term, become Follower. D: {:#?}",
                 self.id,
                 self
             );
-            self.curr_term = msg.term();
+            self.storage.set_current_term(msg.term());
             self.role_state = RoleState::Follower;
             net.timer_reset(TimerKind::Election);
         }
@@ -363,13 +358,13 @@ where
             return Err(());
         }
         let mut resp = AppendEntriesResponse {
-            last_index: self.log.last_index(),
-            term: self.curr_term,
+            last_index: self.storage.last_index(),
+            term: self.storage.current_term(),
             success: false,
         };
 
-        if append_entries.term >= self.curr_term {
-            match self.log.try_append(
+        if append_entries.term >= self.storage.current_term() {
+            match self.storage.try_append(
                 append_entries.prev_log_term,
                 append_entries.prev_log_index,
                 append_entries.entries,
@@ -417,8 +412,8 @@ where
                 match_indexes.insert(peer_id, append_entries_response.last_index);
 
                 let quorum_match_index = utils::quorum_match_index(match_indexes.values());
-                if let Some(entry) = self.log.at(quorum_match_index) {
-                    if entry.term == self.curr_term {
+                if let Some(entry) = self.storage.at(quorum_match_index) {
+                    if entry.term == self.storage.current_term() {
                         self.commit_index = quorum_match_index;
                     }
                 }
@@ -427,9 +422,8 @@ where
                 // Retry to update peer
                 // TODO: Logic for backoff, or set state to deal with replication instead
                 let append = update_peer_request(
-                    &self.log,
+                    &self.storage,
                     self.id,
-                    self.curr_term,
                     self.commit_index,
                     &next_indexes,
                     peer_id,
@@ -449,28 +443,28 @@ where
     where
         N: RaftNetwork<Event = SM::Event>,
     {
-        let resp = if request_vote.term < self.curr_term {
+        let resp = if request_vote.term < self.storage.current_term() {
             RequestVoteResponse {
-                term: self.curr_term,
+                term: self.storage.current_term(),
                 vote_granted: false,
             }
         } else {
-            match self.voted_for {
+            match self.storage.voted_for() {
                 Some(id) if id != request_vote.candidate_id => RequestVoteResponse {
-                    term: self.curr_term,
+                    term: self.storage.current_term(),
                     vote_granted: false,
                 },
                 _ => {
                     let incoming = (request_vote.last_log_term, request_vote.last_log_index);
-                    let current = (self.log.last_term(), self.log.last_index());
+                    let current = (self.storage.last_term(), self.storage.last_index());
                     if incoming >= current {
                         RequestVoteResponse {
-                            term: self.curr_term,
+                            term: self.storage.current_term(),
                             vote_granted: true,
                         }
                     } else {
                         RequestVoteResponse {
-                            term: self.curr_term,
+                            term: self.storage.current_term(),
                             vote_granted: false,
                         }
                     }
@@ -502,7 +496,7 @@ where
                     let mut next_indexes = PeerIndexes::new();
                     let mut match_indexes = PeerIndexes::new();
                     for peer in self.configuration.peers.iter() {
-                        next_indexes.insert(peer.id, self.log.last_index() + 1);
+                        next_indexes.insert(peer.id, self.storage.last_index() + 1);
                         match_indexes.insert(peer.id, 0);
                     }
                     log::info!("[{}] Received quorum votes, become leader", self.id);

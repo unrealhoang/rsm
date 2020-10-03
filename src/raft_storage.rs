@@ -22,9 +22,17 @@ pub trait Storage: Send + 'static {
     fn push(&mut self, term: u64, event: Self::Event);
     fn slice(&self, from_index: u64, to_index: u64) -> &[LogEntry<Self::Event>];
     fn slice_to_end(&self, from_index: u64) -> &[LogEntry<Self::Event>];
+    fn current_term(&self) -> u64;
+    fn voted_for(&self) -> Option<u64>;
+    fn set_current_term(&mut self, current_term: u64);
+    fn set_voted_for(&mut self, voted_for: u64);
 }
 
-pub struct VecStorage<E>(Vec<LogEntry<E>>);
+pub struct VecStorage<E> {
+    current_term: u64,
+    voted_for: Option<u64>,
+    data: Vec<LogEntry<E>>,
+}
 
 impl<E: Send + 'static> Storage for VecStorage<E> {
     type Event = E;
@@ -32,15 +40,15 @@ impl<E: Send + 'static> Storage for VecStorage<E> {
     fn at(&self, index: u64) -> Option<&LogEntry<E>> {
         let vec_index = self.to_vec_index(index)?;
 
-        self.0.get(vec_index)
+        self.data.get(vec_index)
     }
 
     fn last_term(&self) -> u64 {
-        self.0.last().map(|entry| entry.term).unwrap_or(0)
+        self.data.last().map(|entry| entry.term).unwrap_or(0)
     }
 
     fn last_index(&self) -> u64 {
-        self.0.last().map(|entry| entry.index).unwrap_or(0)
+        self.data.last().map(|entry| entry.index).unwrap_or(0)
     }
 
     fn try_append(
@@ -50,13 +58,13 @@ impl<E: Send + 'static> Storage for VecStorage<E> {
         mut entries: Vec<LogEntry<E>>,
     ) -> Result<u64, u64> {
         if prev_index == 0 && prev_term == 0 {
-            self.0.append(&mut entries);
+            self.data.append(&mut entries);
             return Ok(self.last_index());
         }
         if let Some(entry) = self.at(prev_index) {
             if entry.term == prev_term {
                 self.clear_from_index(prev_index + 1);
-                self.0.append(&mut entries);
+                self.data.append(&mut entries);
                 Ok(self.last_index())
             } else {
                 self.clear_from_index(prev_index);
@@ -68,7 +76,7 @@ impl<E: Send + 'static> Storage for VecStorage<E> {
     }
 
     fn push(&mut self, term: u64, event: E) {
-        self.0.push(LogEntry {
+        self.data.push(LogEntry {
             index: self.last_index() + 1,
             term,
             data: event,
@@ -77,7 +85,7 @@ impl<E: Send + 'static> Storage for VecStorage<E> {
 
     fn slice_to_end(&self, from_index: u64) -> &[LogEntry<E>] {
         if let Some(vec_index) = self.to_vec_index(from_index) {
-            &self.0[vec_index..]
+            &self.data[vec_index..]
         } else {
             &[]
         }
@@ -86,20 +94,40 @@ impl<E: Send + 'static> Storage for VecStorage<E> {
     // slice range [from_index, to_index)
     fn slice(&self, from_index: u64, to_index: u64) -> &[LogEntry<E>] {
         match (self.to_vec_index(from_index), self.to_vec_index(to_index)) {
-            (Some(from), Some(to)) => &self.0[from..to],
+            (Some(from), Some(to)) => &self.data[from..to],
             _ => &[],
         }
+    }
+
+    fn current_term(&self) -> u64 {
+        self.current_term
+    }
+
+    fn voted_for(&self) -> Option<u64> {
+        self.voted_for
+    }
+
+    fn set_current_term(&mut self, current_term: u64) {
+        self.current_term = current_term;
+    }
+
+    fn set_voted_for(&mut self, voted_for: u64) {
+        self.voted_for = Some(voted_for);
     }
 }
 
 impl<E> VecStorage<E> {
     pub fn new() -> Self {
-        VecStorage(Vec::new())
+        VecStorage {
+            data: Vec::new(),
+            current_term: 0,
+            voted_for: None,
+        }
     }
 
     fn clear_from_index(&mut self, index: u64) {
         if let Some(vec_index) = self.to_vec_index(index) {
-            self.0.truncate(vec_index);
+            self.data.truncate(vec_index);
         }
     }
 
@@ -107,8 +135,8 @@ impl<E> VecStorage<E> {
     // None if log's index not found
     #[inline]
     fn to_vec_index(&self, index: u64) -> Option<usize> {
-        let last_index = self.0.last()?.index as usize;
-        let last_vec_index = self.0.len() - 1;
+        let last_index = self.data.last()?.index as usize;
+        let last_vec_index = self.data.len() - 1;
         let vec_index: isize = last_vec_index as isize - (last_index as isize - index as isize);
         if vec_index >= 0 {
             Some(vec_index as usize)
