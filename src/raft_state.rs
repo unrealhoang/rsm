@@ -232,7 +232,7 @@ where
         }
     }
 
-    pub(crate) fn update_peers<N>(&self, net: &mut N, is_heartbeat: bool) -> Result<(), ()>
+    pub(crate) fn update_peers<N>(&self, net: &mut N, is_heartbeat: bool)
     where
         N: RaftNetwork<Event = SM::Event>,
     {
@@ -263,8 +263,6 @@ where
                 });
 
             net.send_all(append_reqs)
-        } else {
-            Err(())
         }
     }
 
@@ -277,7 +275,7 @@ where
         if !self.is_leader() {
             log::info!("[{:?}] Drop client request", self.role_state);
         } else {
-            self.storage.push(self.storage.current_term(), request);
+            self.storage.propose(self.storage.current_term(), request);
         }
     }
 
@@ -339,7 +337,7 @@ where
         net: &mut N,
         peer_id: u64,
         msg: Msg<SM::Event>,
-    ) -> Result<(), ()>
+    )
     where
         N: RaftNetwork<Event = SM::Event>,
     {
@@ -367,12 +365,12 @@ where
         net: &mut N,
         peer_id: u64,
         append_entries: AppendEntries<SM::Event>,
-    ) -> Result<(), ()>
+    )
     where
         N: RaftNetwork<Event = SM::Event>,
     {
         if let RoleState::Leader { .. } = self.role_state {
-            return Err(());
+            return
         }
         let mut resp = AppendEntriesResponse {
             last_index: self.storage.last_index(),
@@ -406,7 +404,7 @@ where
             }
         }
 
-        net.send(peer_id, Msg::AppendEntriesResponse(resp))
+        net.send(peer_id, Msg::AppendEntriesResponse(resp));
     }
 
     fn append_entries_response<N>(
@@ -414,7 +412,7 @@ where
         net: &mut N,
         peer_id: u64,
         append_entries_response: AppendEntriesResponse,
-    ) -> Result<(), ()>
+    )
     where
         N: RaftNetwork<Event = SM::Event>,
     {
@@ -445,10 +443,9 @@ where
                     &next_indexes,
                     peer_id,
                 );
-                return net.send(peer_id, Msg::AppendEntries(append));
+                net.send(peer_id, Msg::AppendEntries(append));
             }
         }
-        Ok(())
     }
 
     fn request_vote<N>(
@@ -456,7 +453,7 @@ where
         net: &mut N,
         peer_id: u64,
         request_vote: RequestVote,
-    ) -> Result<(), ()>
+    )
     where
         N: RaftNetwork<Event = SM::Event>,
     {
@@ -492,7 +489,7 @@ where
             self.storage.set_voted_for(Some(request_vote.candidate_id));
             net.timer_reset(TimerKind::Election);
         }
-        net.send(peer_id, Msg::RequestVoteResponse(resp))
+        net.send(peer_id, Msg::RequestVoteResponse(resp));
     }
 
     fn request_vote_response<N>(
@@ -500,7 +497,7 @@ where
         net: &mut N,
         peer_id: u64,
         request_vote_response: RequestVoteResponse,
-    ) -> Result<(), ()>
+    )
     where
         N: RaftNetwork<Event = SM::Event>,
     {
@@ -526,7 +523,5 @@ where
                 }
             }
         }
-
-        Ok(())
     }
 }

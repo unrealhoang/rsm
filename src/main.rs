@@ -2,8 +2,8 @@ use crossbeam::channel::Sender;
 use env_logger;
 use log::info;
 use rand::thread_rng;
-use rsm_raft::impls::ChanNetwork;
-use rsm_raft::{raft_storage::VecStorage, Node, PeerConfig, StateMachine, Suffrage};
+use rsm_raft::impls::{ChanNetwork, MemStorage};
+use rsm_raft::{Node, PeerConfig, StateMachine, Suffrage};
 use std::collections::HashMap;
 use std::io;
 use std::io::BufRead;
@@ -64,7 +64,7 @@ fn main() {
         let sm = KVStore {
             data: HashMap::new(),
         };
-        let log = VecStorage::new();
+        let log = MemStorage::new();
 
         let node = Node::new(i as u64, sm, log, network, topology.clone());
         nodes.push(node);
@@ -111,9 +111,9 @@ mod tests {
 
     use crossbeam::channel::Sender;
     use rand::thread_rng;
-    use rsm_raft::impls::ChanNetwork;
+    use rsm_raft::impls::{ChanNetwork, MemStorage};
     use rsm_raft::{
-        raft_storage::VecStorage, Node, PeerConfig, RaftNetwork, RaftRole, StateMachine, Storage,
+        Node, PeerConfig, RaftNetwork, RaftRole, StateMachine, Storage,
         Suffrage,
     };
 
@@ -196,7 +196,7 @@ mod tests {
             let sm = KVStore {
                 data: HashMap::new(),
             };
-            let log = VecStorage::new();
+            let log = MemStorage::new();
 
             let node = Node::new(i as u64, sm, log, Arc::clone(&network), topology.clone());
             nodes.push(node);

@@ -19,15 +19,14 @@ pub enum TimerKind {
 pub trait RaftNetwork: Send + Debug + 'static {
     type Event: Clone + Debug;
 
-    fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) -> Result<(), ()>;
-    fn send_all<I>(&mut self, targets: I) -> Result<(), ()>
+    fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>);
+    fn send_all<I>(&mut self, targets: I)
     where
         I: Iterator<Item = (u64, Msg<Self::Event>)>,
     {
         for (peer_id, msg) in targets {
-            self.send(peer_id, msg)?;
+            self.send(peer_id, msg);
         }
-        Ok(())
     }
 
     fn timer_reset(&mut self, timer_kind: TimerKind);

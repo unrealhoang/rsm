@@ -11,7 +11,7 @@ use crossbeam::channel::{Receiver, Sender};
 use crate::raft_network::{RaftNetwork, SelectedAction, TimerKind};
 use crate::Msg;
 
-// Channels to communicate with peers
+/// Input/Output channels to communicate with peers
 pub struct Peer<E: Clone + Debug> {
     id: u64,
     tx: Sender<Msg<E>>,
@@ -29,6 +29,8 @@ struct Timer {
     timer_kind: TimerKind,
 }
 
+/// In-memory Channel-based network between nodes in the same process.
+/// Usually used for testing.
 pub struct ChanNetwork<E: Clone + Debug> {
     election_timeout: u64,
     heartbeat_timeout: u64,
@@ -182,9 +184,10 @@ impl<E: Clone + Debug> Index<usize> for ChanNetwork<E> {
 impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
     type Event = E;
 
-    fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) -> Result<(), ()> {
-        let p = self.find_by_id(peer_id).ok_or(())?;
-        p.tx.send(msg).map_err(|_| ())
+    fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) {
+        if let Some(p) = self.find_by_id(peer_id) {
+            p.tx.send(msg).map_err(|_| ());
+        }
     }
 
     fn timer_reset(&mut self, timer_kind: TimerKind) {
@@ -231,8 +234,15 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
 impl<E: Clone + Debug + Send + 'static> RaftNetwork for Arc<Mutex<ChanNetwork<E>>> {
     type Event = E;
 
-    fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) -> Result<(), ()> {
+    fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) {
         self.lock().unwrap().send(peer_id, msg)
+    }
+
+    fn send_all<I>(&mut self, targets: I)
+    where
+        I: Iterator<Item = (u64, Msg<Self::Event>)>,
+    {
+        self.lock().unwrap().send_all(targets)
     }
 
     fn timer_reset(&mut self, timer_kind: TimerKind) {
