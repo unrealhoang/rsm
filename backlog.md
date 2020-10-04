@@ -1,3 +1,4 @@
+# TODO:
 * [x] Refactor into trait
     - [x] ~State to `<SM, L, N>`? -> Reuse old code~
     - [x] Handle client message
@@ -18,6 +19,9 @@
 * [ ] StateMachine snapshotting
 * [ ] Topology change
 * [ ] Refactor to type based State FSM LeaderState / NodeState
+
+# Wishlist
 * [ ] Proper error handling
 * [ ] CoW snapshotting
     * https://docs.rs/ipc-channel/0.14.1/ipc_channel/
+* [ ] Zero-copy/clone serialization

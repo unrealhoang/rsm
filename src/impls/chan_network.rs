@@ -12,13 +12,13 @@ use crate::raft_network::{RaftNetwork, SelectedAction, TimerKind};
 use crate::Msg;
 
 /// Input/Output channels to communicate with peers
-pub struct Peer<E: Clone + Debug> {
+pub struct Peer<E: Debug> {
     id: u64,
     tx: Sender<Msg<E>>,
     rx: Receiver<Msg<E>>,
 }
 
-impl<E: Clone + Debug> Peer<E> {
+impl<E: Debug> Peer<E> {
     pub fn new(id: u64, tx: Sender<Msg<E>>, rx: Receiver<Msg<E>>) -> Self {
         Peer { id, tx, rx }
     }
@@ -31,7 +31,7 @@ struct Timer {
 
 /// In-memory Channel-based network between nodes in the same process.
 /// Usually used for testing.
-pub struct ChanNetwork<E: Clone + Debug> {
+pub struct ChanNetwork<E: Debug> {
     election_timeout: u64,
     heartbeat_timeout: u64,
     controlled_timer: bool,
@@ -40,7 +40,7 @@ pub struct ChanNetwork<E: Clone + Debug> {
     timer: Option<Timer>,
 }
 
-impl<E: Clone + Debug> Debug for ChanNetwork<E> {
+impl<E: Debug> Debug for ChanNetwork<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let timer_kind = match &self.timer {
             Some(t) => match t.timer_kind {
@@ -57,7 +57,7 @@ impl<E: Clone + Debug> Debug for ChanNetwork<E> {
     }
 }
 
-impl<E: Clone + Debug> ChanNetwork<E> {
+impl<E: Debug> ChanNetwork<E> {
     pub fn new(
         election_timeout: u64,
         heartbeat_timeout: u64,
@@ -100,7 +100,7 @@ impl<E: Clone + Debug> ChanNetwork<E> {
         let mut client_txs = Vec::new();
         let mut networks = Vec::new();
 
-        for i in 0..nodes_count {
+        for peer_list in peers_per_node.drain(..) {
             let election_timeout =
                 rng.gen_range(election_timeout_range.start, election_timeout_range.end);
             let (client_tx, client_rx) = unbounded();
@@ -109,7 +109,7 @@ impl<E: Clone + Debug> ChanNetwork<E> {
             networks.push(ChanNetwork::new(
                 election_timeout,
                 heartbeat_timeout,
-                peers_per_node.remove(0),
+                peer_list,
                 client_rx,
                 controlled_timer,
             ));
@@ -151,14 +151,6 @@ impl<E: Clone + Debug> ChanNetwork<E> {
         }
     }
 
-    fn iter(&self) -> impl Iterator<Item = &Peer<E>> {
-        self.peers.iter()
-    }
-
-    fn len(&self) -> usize {
-        self.peers.len()
-    }
-
     fn find_by_id(&self, id: u64) -> Option<&Peer<E>> {
         self.peers.iter().find(|p| p.id == id)
     }
@@ -174,19 +166,21 @@ impl<E: Clone + Debug> ChanNetwork<E> {
     }
 }
 
-impl<E: Clone + Debug> Index<usize> for ChanNetwork<E> {
+impl<E: Debug> Index<usize> for ChanNetwork<E> {
     type Output = Peer<E>;
     fn index(&self, index: usize) -> &Self::Output {
         &self.peers[index]
     }
 }
 
-impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
+impl<E: Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
     type Event = E;
 
     fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) {
         if let Some(p) = self.find_by_id(peer_id) {
-            p.tx.send(msg).map_err(|_| ());
+            if let Err(e) = p.tx.send(msg) {
+                log::error!("ChanNetwork failed to send: {}", e);
+            }
         }
     }
 
@@ -231,7 +225,7 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
     }
 }
 
-impl<E: Clone + Debug + Send + 'static> RaftNetwork for Arc<Mutex<ChanNetwork<E>>> {
+impl<E: Debug + Send + 'static> RaftNetwork for Arc<Mutex<ChanNetwork<E>>> {
     type Event = E;
 
     fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) {

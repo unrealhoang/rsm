@@ -7,7 +7,7 @@ pub struct MemStorage<E> {
     data: Vec<LogEntry<E>>,
 }
 
-impl<E: Send + 'static> Storage for MemStorage<E> {
+impl<E: Clone + Send + 'static> Storage for MemStorage<E> {
     type Event = E;
 
     fn at(&self, index: u64) -> Option<&LogEntry<E>> {

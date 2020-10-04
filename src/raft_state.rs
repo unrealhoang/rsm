@@ -92,10 +92,6 @@ impl<T: Copy + Debug> PeerInfos<T> {
         }
     }
 
-    pub(crate) fn keys(&self) -> impl Iterator<Item = u64> + '_ + Clone + ExactSizeIterator {
-        self.0.iter().map(|item| item.0)
-    }
-
     pub(crate) fn values(&self) -> impl Iterator<Item = T> + '_ + Clone + ExactSizeIterator {
         self.0.iter().map(|item| item.1)
     }
@@ -332,12 +328,7 @@ where
         }
     }
 
-    pub(crate) fn handle_rpc<N>(
-        &mut self,
-        net: &mut N,
-        peer_id: u64,
-        msg: Msg<SM::Event>,
-    )
+    pub(crate) fn handle_rpc<N>(&mut self, net: &mut N, peer_id: u64, msg: Msg<SM::Event>)
     where
         N: RaftNetwork<Event = SM::Event>,
     {
@@ -365,12 +356,11 @@ where
         net: &mut N,
         peer_id: u64,
         append_entries: AppendEntries<SM::Event>,
-    )
-    where
+    ) where
         N: RaftNetwork<Event = SM::Event>,
     {
         if let RoleState::Leader { .. } = self.role_state {
-            return
+            return;
         }
         let mut resp = AppendEntriesResponse {
             last_index: self.storage.last_index(),
@@ -412,8 +402,7 @@ where
         net: &mut N,
         peer_id: u64,
         append_entries_response: AppendEntriesResponse,
-    )
-    where
+    ) where
         N: RaftNetwork<Event = SM::Event>,
     {
         if let RoleState::Leader {
@@ -448,12 +437,7 @@ where
         }
     }
 
-    fn request_vote<N>(
-        &mut self,
-        net: &mut N,
-        peer_id: u64,
-        request_vote: RequestVote,
-    )
+    fn request_vote<N>(&mut self, net: &mut N, peer_id: u64, request_vote: RequestVote)
     where
         N: RaftNetwork<Event = SM::Event>,
     {
@@ -497,8 +481,7 @@ where
         net: &mut N,
         peer_id: u64,
         request_vote_response: RequestVoteResponse,
-    )
-    where
+    ) where
         N: RaftNetwork<Event = SM::Event>,
     {
         if let RoleState::Candidate { votes } = &mut self.role_state {

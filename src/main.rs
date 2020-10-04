@@ -112,10 +112,7 @@ mod tests {
     use crossbeam::channel::Sender;
     use rand::thread_rng;
     use rsm_raft::impls::{ChanNetwork, MemStorage};
-    use rsm_raft::{
-        Node, PeerConfig, RaftNetwork, RaftRole, StateMachine, Storage,
-        Suffrage,
-    };
+    use rsm_raft::{Node, PeerConfig, RaftNetwork, RaftRole, StateMachine, Storage, Suffrage};
 
     struct KVStore {
         data: HashMap<String, String>,

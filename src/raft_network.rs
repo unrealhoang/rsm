@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::Msg;
 
 #[derive(Debug)]
-pub enum SelectedAction<E: Clone + Debug> {
+pub enum SelectedAction<E: Debug> {
     Client(E),
     Peer(u64, Msg<E>),
     Timer(TimerKind),
@@ -17,7 +17,7 @@ pub enum TimerKind {
 }
 
 pub trait RaftNetwork: Send + Debug + 'static {
-    type Event: Clone + Debug;
+    type Event: Debug;
 
     fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>);
     fn send_all<I>(&mut self, targets: I)

@@ -8,7 +8,7 @@ pub struct LogEntry<E> {
 }
 
 pub trait Storage: Send + 'static {
-    type Event;
+    type Event: Clone;
 
     fn at(&self, index: u64) -> Option<&LogEntry<Self::Event>>;
     fn last_term(&self) -> u64;
