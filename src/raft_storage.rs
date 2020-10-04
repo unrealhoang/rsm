@@ -25,7 +25,7 @@ pub trait Storage: Send + 'static {
     fn current_term(&self) -> u64;
     fn voted_for(&self) -> Option<u64>;
     fn set_current_term(&mut self, current_term: u64);
-    fn set_voted_for(&mut self, voted_for: u64);
+    fn set_voted_for(&mut self, voted_for: Option<u64>);
 }
 
 pub struct VecStorage<E> {
@@ -111,8 +111,8 @@ impl<E: Send + 'static> Storage for VecStorage<E> {
         self.current_term = current_term;
     }
 
-    fn set_voted_for(&mut self, voted_for: u64) {
-        self.voted_for = Some(voted_for);
+    fn set_voted_for(&mut self, voted_for: Option<u64>) {
+        self.voted_for = voted_for;
     }
 }
 
@@ -149,7 +149,7 @@ impl<E> VecStorage<E> {
 mod tests {
     #[test]
     fn test_append_entries_success() {
-        use super::{Storage, LogEntry};
+        use super::{LogEntry, Storage};
         let mut log = super::VecStorage::new();
         log.push(1, 1);
         log.push(1, 2);
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_append_entries_failure() {
-        use super::{Storage, LogEntry};
+        use super::{LogEntry, Storage};
         let mut log = super::VecStorage::new();
         log.push(1, 1);
         log.push(1, 2);

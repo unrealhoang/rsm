@@ -22,7 +22,7 @@ pub trait RaftNetwork: Send + Debug + 'static {
     fn send(&mut self, peer_id: u64, msg: Msg<Self::Event>) -> Result<(), ()>;
     fn send_all<I>(&mut self, targets: I) -> Result<(), ()>
     where
-        I: Iterator<Item = (u64, Msg<Self::Event>)>
+        I: Iterator<Item = (u64, Msg<Self::Event>)>,
     {
         for (peer_id, msg) in targets {
             self.send(peer_id, msg)?;
@@ -32,6 +32,10 @@ pub trait RaftNetwork: Send + Debug + 'static {
 
     fn timer_reset(&mut self, timer_kind: TimerKind);
 
-    fn select_actions(&mut self, buf: &mut Vec<SelectedAction<Self::Event>>, max_action: usize, max_wait_time: Duration) -> bool;
+    fn select_actions(
+        &mut self,
+        buf: &mut Vec<SelectedAction<Self::Event>>,
+        max_action: usize,
+        max_wait_time: Duration,
+    ) -> bool;
 }
-

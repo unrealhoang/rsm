@@ -1,13 +1,14 @@
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crate::Storage;
+use crate::raft_network::{SelectedAction, TimerKind};
+use crate::raft_state::Msg;
+use crate::raft_state::RaftRole;
+use crate::raft_state::RaftState;
 use crate::PeerConfig;
 use crate::RaftNetwork;
 use crate::StateMachine;
-use crate::raft_state::Msg;
-use crate::raft_state::RaftState;
-use crate::raft_network::{SelectedAction, TimerKind};
+use crate::Storage;
 
 // Node configurations & network
 pub struct Node<SM, L, N>
@@ -27,13 +28,8 @@ where
     L: Storage<Event = SM::Event>,
     N: RaftNetwork<Event = SM::Event>,
 {
-    pub fn new(
-        node_id: u64,
-        sm: SM,
-        log: L,
-        network: N,
-        topology: Vec<PeerConfig>,
-    ) -> Self {
+    pub fn new(node_id: u64, sm: SM, log: L, mut network: N, topology: Vec<PeerConfig>) -> Self {
+        network.timer_reset(TimerKind::Election);
         let state = RaftState::new(node_id, sm, log, topology);
 
         Node {
@@ -45,7 +41,6 @@ where
 
     pub fn start_loop(mut self) -> JoinHandle<()> {
         log::info!("[{}] Start node event loop", self.id);
-        self.network.timer_reset(TimerKind::Election);
         let mut action_buf = Vec::new();
 
         thread::spawn(move || loop {
@@ -53,12 +48,26 @@ where
         })
     }
 
-    pub fn tick(&mut self, action_buf: &mut Vec<SelectedAction<SM::Event>>, max_actions: usize, timeout: Duration) -> bool {
+    fn tick(
+        &mut self,
+        action_buf: &mut Vec<SelectedAction<SM::Event>>,
+        max_actions: usize,
+        timeout: Duration,
+    ) -> bool {
         self.state.apply_committed();
         self.state.update_peers(&mut self.network, false);
 
-        let timed_out = self.network.select_actions(action_buf, max_actions, timeout);
-        log::info!("[{}] Node: {:#?}, Actions: {:#?}. Network: {:#?}", self.id, self.state, action_buf, self.network);
+        self.network
+            .select_actions(action_buf, max_actions, timeout);
+        log::info!(
+            "[{}] Node: {:#?}, Actions: {:#?}. Network: {:#?}",
+            self.id,
+            self.state,
+            action_buf,
+            self.network
+        );
+
+        let mut has_event = false;
 
         for action in action_buf.drain(..) {
             match action {
@@ -72,9 +81,15 @@ where
                     self.handle_peer(id, msg);
                 }
             };
+            has_event = true;
         }
 
-        timed_out
+        has_event
+    }
+
+    pub fn test_tick(&mut self, max_actions: usize, timeout: Duration) -> bool {
+        let mut buf = Vec::new();
+        self.tick(&mut buf, max_actions, timeout)
     }
 
     fn handle_client(&mut self, client_event: SM::Event) {
@@ -91,5 +106,9 @@ where
 
     fn handle_peer(&mut self, peer_id: u64, peer_msg: Msg<SM::Event>) {
         self.state.handle_rpc(&mut self.network, peer_id, peer_msg);
+    }
+
+    pub fn role(&self) -> RaftRole {
+        self.state.role()
     }
 }

@@ -1,15 +1,15 @@
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
-use std::sync::Mutex;
 use std::{fmt::Debug, ops::Index, ops::Range};
 
 use crossbeam::channel::Select;
 use crossbeam::channel::{after, unbounded};
 use crossbeam::channel::{Receiver, Sender};
 
+use crate::raft_network::{RaftNetwork, SelectedAction, TimerKind};
 use crate::Msg;
-use crate::raft_network::{TimerKind, RaftNetwork, SelectedAction};
 
 // Channels to communicate with peers
 pub struct Peer<E: Clone + Debug> {
@@ -35,7 +35,7 @@ pub struct ChanNetwork<E: Clone + Debug> {
     controlled_timer: bool,
     peers: Vec<Peer<E>>,
     client_rx: Receiver<E>,
-    timer: Option<Timer>
+    timer: Option<Timer>,
 }
 
 impl<E: Clone + Debug> Debug for ChanNetwork<E> {
@@ -45,7 +45,7 @@ impl<E: Clone + Debug> Debug for ChanNetwork<E> {
                 TimerKind::Election => "election",
                 TimerKind::Heartbeat => "heartbeat",
             },
-            None => "none"
+            None => "none",
         };
         f.debug_struct("ChanNetwork")
             .field("election_timeout", &self.election_timeout)
@@ -56,7 +56,13 @@ impl<E: Clone + Debug> Debug for ChanNetwork<E> {
 }
 
 impl<E: Clone + Debug> ChanNetwork<E> {
-    pub fn new(election_timeout: u64, heartbeat_timeout: u64, peers: Vec<Peer<E>>, client_rx: Receiver<E>, controlled_timer: bool) -> Self {
+    pub fn new(
+        election_timeout: u64,
+        heartbeat_timeout: u64,
+        peers: Vec<Peer<E>>,
+        client_rx: Receiver<E>,
+        controlled_timer: bool,
+    ) -> Self {
         ChanNetwork {
             election_timeout,
             heartbeat_timeout,
@@ -67,7 +73,13 @@ impl<E: Clone + Debug> ChanNetwork<E> {
         }
     }
 
-    pub fn cluster<R: rand::Rng>(rng: &mut R, election_timeout_range: Range<u64>, heartbeat_timeout: u64, nodes_count: usize, controlled_timer: bool) -> (Vec<ChanNetwork<E>>, Vec<Sender<E>>) {
+    pub fn cluster<R: rand::Rng>(
+        rng: &mut R,
+        election_timeout_range: Range<u64>,
+        heartbeat_timeout: u64,
+        nodes_count: usize,
+        controlled_timer: bool,
+    ) -> (Vec<ChanNetwork<E>>, Vec<Sender<E>>) {
         let mut peers_per_node = Vec::new();
 
         for _i in 0..nodes_count {
@@ -87,11 +99,18 @@ impl<E: Clone + Debug> ChanNetwork<E> {
         let mut networks = Vec::new();
 
         for i in 0..nodes_count {
-            let election_timeout = rng.gen_range(election_timeout_range.start, election_timeout_range.end);
+            let election_timeout =
+                rng.gen_range(election_timeout_range.start, election_timeout_range.end);
             let (client_tx, client_rx) = unbounded();
 
             client_txs.push(client_tx);
-            networks.push(ChanNetwork::new(election_timeout, heartbeat_timeout, peers_per_node.remove(0), client_rx, controlled_timer));
+            networks.push(ChanNetwork::new(
+                election_timeout,
+                heartbeat_timeout,
+                peers_per_node.remove(0),
+                client_rx,
+                controlled_timer,
+            ));
         }
 
         (networks, client_txs)
@@ -117,7 +136,9 @@ impl<E: Clone + Debug> ChanNetwork<E> {
             }
             i if i > client_index => {
                 selected.recv(&self.timer.as_ref().unwrap().rx).unwrap();
-                Some(SelectedAction::Timer(self.timer.as_ref().unwrap().timer_kind))
+                Some(SelectedAction::Timer(
+                    self.timer.as_ref().unwrap().timer_kind,
+                ))
             }
             i if i < self.peers.len() => {
                 let peer = &self.peers[i];
@@ -139,6 +160,16 @@ impl<E: Clone + Debug> ChanNetwork<E> {
     fn find_by_id(&self, id: u64) -> Option<&Peer<E>> {
         self.peers.iter().find(|p| p.id == id)
     }
+
+    pub fn trigger_timer(&mut self) {
+        if !self.controlled_timer {
+            return;
+        }
+
+        self.timer
+            .as_mut()
+            .map(|t| t.rx = after(Duration::from_secs(0)));
+    }
 }
 
 impl<E: Clone + Debug> Index<usize> for ChanNetwork<E> {
@@ -157,13 +188,14 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
     }
 
     fn timer_reset(&mut self, timer_kind: TimerKind) {
-        let duration = match timer_kind {
-            TimerKind::Heartbeat => {
-                Duration::from_millis(self.heartbeat_timeout)
+        let duration = if self.controlled_timer {
+            match timer_kind {
+                TimerKind::Heartbeat => Duration::from_millis(self.heartbeat_timeout),
+                TimerKind::Election => Duration::from_millis(self.election_timeout),
             }
-            TimerKind::Election => {
-                Duration::from_millis(self.election_timeout)
-            }
+        } else {
+            // practically forever
+            Duration::from_secs(1000_000_000)
         };
         self.timer = Some(Timer {
             timer_kind,
@@ -171,7 +203,12 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
         });
     }
 
-    fn select_actions(&mut self, buf: &mut Vec<SelectedAction<Self::Event>>, max_actions: usize, max_wait_time: Duration) -> bool {
+    fn select_actions(
+        &mut self,
+        buf: &mut Vec<SelectedAction<Self::Event>>,
+        max_actions: usize,
+        max_wait_time: Duration,
+    ) -> bool {
         let duration_zero = Duration::new(0, 0);
 
         let mut timeout = max_wait_time;
@@ -179,7 +216,9 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for ChanNetwork<E> {
             let instant = Instant::now();
             if let Some(action) = self.select_action(timeout) {
                 buf.push(action);
-                timeout = timeout.checked_sub(instant.elapsed()).unwrap_or(duration_zero);
+                timeout = timeout
+                    .checked_sub(instant.elapsed())
+                    .unwrap_or(duration_zero);
             } else {
                 return true;
             }
@@ -200,7 +239,14 @@ impl<E: Clone + Debug + Send + 'static> RaftNetwork for Arc<Mutex<ChanNetwork<E>
         self.lock().unwrap().timer_reset(timer_kind)
     }
 
-    fn select_actions(&mut self, buf: &mut Vec<SelectedAction<Self::Event>>, max_actions: usize, max_wait_time: Duration) -> bool {
-        self.lock().unwrap().select_actions(buf, max_actions, max_wait_time)
+    fn select_actions(
+        &mut self,
+        buf: &mut Vec<SelectedAction<Self::Event>>,
+        max_actions: usize,
+        max_wait_time: Duration,
+    ) -> bool {
+        self.lock()
+            .unwrap()
+            .select_actions(buf, max_actions, max_wait_time)
     }
 }

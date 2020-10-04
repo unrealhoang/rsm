@@ -11,6 +11,7 @@
 * [x] Batch network action
 * [x] Rename Log to Storage
 * [x] Move HardState to Storage
+* [ ] Move client from network to Node, add Node#request, Node#query
 * [ ] Move StateMachine to Storage
 * [ ] Introduce Output type for SM
 * [ ] StateMachine batch processing

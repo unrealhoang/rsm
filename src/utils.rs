@@ -3,22 +3,29 @@ where
     I: ExactSizeIterator<Item = u64> + Clone,
 {
     let outer = elements.clone();
-    let majority_threshold = (elements.len() + 1) / 2;
+    let majority_threshold = elements.len() / 2 + 1;
 
-    let mut max_quorum_match_index = 0;
+    let mut min_accepted = None;
     for current in outer {
         let mut count_lte = 0;
         let inner = elements.clone();
         for item in inner {
-            if current <= item {
+            if current >= item {
                 count_lte += 1;
             }
         }
-        if count_lte >= majority_threshold && current > max_quorum_match_index {
-            max_quorum_match_index = current
+        println!(
+            "Debug current: {}, count: {}, majority_threshold: {}",
+            current, count_lte, majority_threshold
+        );
+        if count_lte >= majority_threshold
+            && (min_accepted.is_none() || current < min_accepted.unwrap())
+        {
+            min_accepted = Some(current)
         }
+        println!("Min accepted: {:?}", min_accepted);
     }
-    max_quorum_match_index
+    min_accepted.unwrap()
 }
 
 #[cfg(test)]
@@ -27,7 +34,7 @@ mod tests {
     use rand::Rng;
 
     fn random_vec(rng: &mut StdRng) -> Vec<u64> {
-        let vec_size = rng.gen_range(2, 15);
+        let vec_size = rng.gen_range(2, 20);
         (0..vec_size).map(|_| rng.gen_range(0, 50)).collect()
     }
 
@@ -54,12 +61,12 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(12);
 
-        for _i in 0..10 {
+        for _i in 0..1000 {
             let vec = random_vec(&mut rng);
             let mut sorted_vec = vec.clone();
             sorted_vec.sort();
 
-            let median = sorted_vec[vec.len() - 1 / 2];
+            let median = sorted_vec[vec.len() / 2];
             assert_eq!(
                 median,
                 quorum_match_index(vec.iter().cloned()),

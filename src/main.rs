@@ -2,12 +2,8 @@ use crossbeam::channel::Sender;
 use env_logger;
 use log::info;
 use rand::thread_rng;
-use rsm_raft::{
-    Node, StateMachine,
-    raft_storage::VecStorage,
-    Suffrage, PeerConfig
-};
 use rsm_raft::impls::ChanNetwork;
+use rsm_raft::{raft_storage::VecStorage, Node, PeerConfig, StateMachine, Suffrage};
 use std::collections::HashMap;
 use std::io;
 use std::io::BufRead;
@@ -52,14 +48,15 @@ fn main() {
         .expect("Parse error");
     let mut nodes = Vec::new();
     let mut rng = thread_rng();
-    let (networks, mut client_txs) = ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes, false);
+    let (networks, mut client_txs) =
+        ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes, false);
 
     let mut i = 0;
     let mut topology = Vec::new();
     for i in 0..number_of_nodes {
         topology.push(PeerConfig {
             id: i as u64,
-            suffrage: Suffrage::Voter
+            suffrage: Suffrage::Voter,
         });
     }
 
@@ -69,13 +66,7 @@ fn main() {
         };
         let log = VecStorage::new();
 
-        let node = Node::new(
-            i as u64,
-            sm,
-            log,
-            network,
-            topology.clone(),
-        );
+        let node = Node::new(i as u64, sm, log, network, topology.clone());
         nodes.push(node);
         i += 1;
     }
@@ -115,16 +106,16 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
     use std::{collections::HashMap, sync::Arc, sync::Mutex};
 
-    use rsm_raft::{
-        Node, StateMachine,
-        raft_storage::VecStorage,
-        Suffrage, PeerConfig,
-    };
-    use rsm_raft::impls::ChanNetwork;
     use crossbeam::channel::Sender;
     use rand::thread_rng;
+    use rsm_raft::impls::ChanNetwork;
+    use rsm_raft::{
+        raft_storage::VecStorage, Node, PeerConfig, RaftNetwork, RaftRole, StateMachine, Storage,
+        Suffrage,
+    };
 
     struct KVStore {
         data: HashMap<String, String>,
@@ -157,40 +148,73 @@ mod tests {
         }
     }
 
+    fn drive_to_empty<SM, L, N>(nodes: &mut [Node<SM, L, N>])
+    where
+        SM: StateMachine,
+        L: Storage<Event = SM::Event>,
+        N: RaftNetwork<Event = SM::Event>,
+    {
+        loop {
+            let mut has_event = false;
+            for node in nodes.iter_mut() {
+                // Exhaust event queue (except timer event), as we controlled
+                while node.test_tick(10, Duration::from_secs(0)) {
+                    has_event = true
+                }
+            }
+
+            if !has_event {
+                break;
+            }
+        }
+    }
+
     #[test]
     fn vote_test() {
+        env_logger::init();
+
         let mut nodes = Vec::new();
         let mut rng = thread_rng();
         let number_of_nodes = 3;
-        let (networks, mut client_txs) = ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes, true);
+        let (networks, mut client_txs) =
+            ChanNetwork::cluster(&mut rng, 15_000..18_000, 2_000, number_of_nodes, true);
 
         let mut i = 0;
         let mut topology = Vec::new();
         for i in 0..number_of_nodes {
             topology.push(PeerConfig {
                 id: i as u64,
-                suffrage: Suffrage::Voter
+                suffrage: Suffrage::Voter,
             });
         }
+        let networks = networks
+            .into_iter()
+            .map(|n| Arc::new(Mutex::new(n)))
+            .collect::<Vec<_>>();
 
-        for network in networks {
+        for network in networks.iter() {
             let sm = KVStore {
                 data: HashMap::new(),
             };
             let log = VecStorage::new();
 
-            let node = Node::new(
-                i as u64,
-                sm,
-                log,
-                Arc::new(Mutex::new(network)),
-                topology.clone()
-            );
+            let node = Node::new(i as u64, sm, log, Arc::clone(&network), topology.clone());
             nodes.push(node);
             i += 1;
         }
 
-        for node in nodes {
+        for node in nodes.iter_mut() {
+            assert_eq!(RaftRole::Follower, node.role());
         }
+        drive_to_empty(&mut nodes);
+
+        // trigger node[0] election timer
+        {
+            let n = networks[0].lock();
+            n.unwrap().trigger_timer();
+        }
+
+        drive_to_empty(&mut nodes);
+        assert_eq!(RaftRole::Leader, nodes[0].role());
     }
 }

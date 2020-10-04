@@ -1,8 +1,15 @@
 use crate::utils;
 use crate::LogEntry;
-use crate::{raft_network::TimerKind, Storage, RaftNetwork, StateMachine};
+use crate::{raft_network::TimerKind, RaftNetwork, StateMachine, Storage};
 use std::fmt::Debug;
 use std::ops::Index;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RaftRole {
+    Follower,
+    Candidate,
+    Leader,
+}
 
 #[derive(Debug)]
 pub struct AppendEntries<E> {
@@ -201,6 +208,14 @@ where
         }
     }
 
+    pub(crate) fn role(&self) -> RaftRole {
+        match &self.role_state {
+            RoleState::Leader { .. } => RaftRole::Leader,
+            RoleState::Follower => RaftRole::Follower,
+            RoleState::Candidate { .. } => RaftRole::Candidate,
+        }
+    }
+
     pub(crate) fn apply_committed(&mut self) -> bool {
         if self.commit_index > self.last_applied {
             let events = self
@@ -275,8 +290,9 @@ where
             self.id,
             self
         );
-        self.storage.set_current_term(self.storage.current_term() + 1);
-        self.storage.set_voted_for(self.id);
+        self.storage
+            .set_current_term(self.storage.current_term() + 1);
+        self.storage.set_voted_for(Some(self.id));
 
         let mut votes = PeerInfos::new();
         votes.insert(self.id, true);
@@ -333,8 +349,9 @@ where
                 self.id,
                 self
             );
-            self.storage.set_current_term(msg.term());
             self.role_state = RoleState::Follower;
+            self.storage.set_current_term(msg.term());
+            self.storage.set_voted_for(None);
             net.timer_reset(TimerKind::Election);
         }
         match msg {
@@ -472,6 +489,7 @@ where
             }
         };
         if resp.vote_granted {
+            self.storage.set_voted_for(Some(request_vote.candidate_id));
             net.timer_reset(TimerKind::Election);
         }
         net.send(peer_id, Msg::RequestVoteResponse(resp))
